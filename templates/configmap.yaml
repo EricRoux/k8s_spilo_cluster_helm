@@ -17,10 +17,6 @@ data:
   USE_WALG_RESTORE: "true"
   WALG_ALIVE_CHECK_INTERVAL: "5m"
   WALE_BINARY: "wal-g"
-  {{- if .Values.volumeClaim.backup.nfs.enabled }}
-  WALG_FILE_PREFIX: "{{ .Values.volumeClaim.backup.path }}/$(POD_NAME)"
-  {{- else }}
   WALG_FILE_PREFIX: "{{ .Values.volumeClaim.backup.path }}"
-  {{- end }}
   WALE_ENV_DIR: "/config"
 {{- end -}}

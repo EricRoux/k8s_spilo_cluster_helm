@@ -39,25 +39,6 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "postgres-cluster.serviceAccountName" . }}
-      {{- if .Values.volumeClaim.backup.nfs.enabled }}
-      initContainers:
-        - name: volume-backup-dir-init
-          image: "{{ .Values.initContainers.image.repository }}:{{ .Values.initContainers.image.tag }}"
-          command: ["sh", "-c", 'mkdir -p "$WALG_FILE_PREFIX"' ]
-          env: 
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  apiVersion: v1
-                  fieldPath: metadata.name
-            - name: WALG_FILE_PREFIX 
-              {{- if .Values.volumeClaim.backup.nfs.enabled }}
-              value: "{{ .Values.volumeClaim.backup.path }}/$(POD_NAME)"
-              {{- end }}
-          volumeMounts:
-            - mountPath: {{ .Values.volumeClaim.backup.path }}
-              name: {{ .Values.volumeClaim.backup.name }}
-      {{- end }}
       containers:
         - name: {{ include "postgres-cluster.fullname" . }}
           securityContext:
@@ -96,12 +77,8 @@ spec:
               {{- end }}
             {{- end }}
             {{- if .Values.volumeClaim.backup }}
-            - name: WALG_FILE_PREFIX 
-              {{- if .Values.volumeClaim.backup.nfs.enabled }}
-              value: "{{ .Values.volumeClaim.backup.path }}/$(POD_NAME)"
-              {{- else }}
+            - name: WALG_FILE_PREFIX
               value: "{{ .Values.volumeClaim.backup.path }}"
-              {{- end }}
             {{- end }}
             - name: PGPASSWORD_SUPERUSER
               valueFrom:
