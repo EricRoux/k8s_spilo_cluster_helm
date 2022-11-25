@@ -150,3 +150,14 @@ secret:
   superuser: superuser
   replication: replication
   admin: admin
+
+affinity: 
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: "spilo-cluster"
+            operator: In
+            values:
+              - '{{ include "postgres-cluster.fullname" . }}'
+        topologyKey: kubernetes.io/hostname

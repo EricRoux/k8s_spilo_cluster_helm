@@ -23,17 +23,7 @@ spec:
       labels:
         application: spilo
         spilo-cluster: {{ include "postgres-cluster.fullname" . }}
-    spec:
-      # affinity:
-      #   podAntiAffinity:
-      #     requiredDuringSchedulingIgnoredDuringExecution:
-      #       - labelSelector:
-      #           matchExpressions:
-      #           - key: "spilo-cluster"
-      #             operator: In
-      #             values:
-      #               - {{ include "postgres-cluster.fullname" . }}
-      #         topologyKey: kubernetes.io/hostname            
+    spec:                    
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -122,6 +112,10 @@ spec:
           nfs:
             server: {{ .Values.volumeClaim.backup.nfs.server }}
             path: {{ .Values.volumeClaim.backup.nfs.path }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- tpl (toYaml .) $ | nindent 8 }}
       {{- end }}
   volumeClaimTemplates:
   - metadata:
