@@ -1,0 +1,177 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "postgres-cluster.fullname" . }}
+  labels:
+    application: spilo
+    spilo-cluster: {{ include "postgres-cluster.fullname" . }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      application: spilo
+      spilo-cluster: {{ include "postgres-cluster.fullname" . }}
+  serviceName: {{ include "postgres-cluster.fullname" . }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        application: spilo
+        spilo-cluster: {{ include "postgres-cluster.fullname" . }}
+    spec:
+      # affinity:
+      #   podAntiAffinity:
+      #     requiredDuringSchedulingIgnoredDuringExecution:
+      #       - labelSelector:
+      #           matchExpressions:
+      #           - key: "spilo-cluster"
+      #             operator: In
+      #             values:
+      #               - {{ include "postgres-cluster.fullname" . }}
+      #         topologyKey: kubernetes.io/hostname            
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "postgres-cluster.serviceAccountName" . }}
+      {{- if .Values.volumeClaim.backup.nfs.enabled }}
+      initContainers:
+        - name: volume-backup-dir-init
+          image: "{{ .Values.initContainers.image.repository }}:{{ .Values.initContainers.image.tag }}"
+          command: ["sh", "-c", 'mkdir -p "$WALG_FILE_PREFIX"' ]
+          env: 
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: WALG_FILE_PREFIX 
+              {{- if .Values.volumeClaim.backup.nfs.enabled }}
+              value: "{{ .Values.volumeClaim.backup.path }}/$(POD_NAME)"
+              {{- end }}
+          volumeMounts:
+            - mountPath: {{ .Values.volumeClaim.backup.path }}
+              name: {{ .Values.volumeClaim.backup.name }}
+      {{- end }}
+      containers:
+        - name: {{ include "postgres-cluster.fullname" . }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          
+          ports:
+            - containerPort: 8008
+              protocol: TCP
+            - containerPort: {{ .Values.service.spilo.targetPort }}
+              protocol: {{ .Values.service.spilo.protocol }}
+          livenessProbe:
+            # postgres check
+            exec: 
+              command: ["psql", "-U", "postgres", "-c", "SELECT 1"]
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            # patroni check
+            tcpSocket: 
+              port: 8008
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          env:
+            {{- range .Values.config }}
+            - name: {{ .name }}
+              {{ if .value -}}
+              value: {{ .value | quote }}
+              {{- else if .valueYaml -}}
+              value: {{ toYaml .valueYaml | indent 18 }}
+              {{- else if .valueTPL -}}
+              value: {{ tpl .valueTPL $ | quote }}
+              {{- else if .valueFrom -}}
+              valueFrom: {{ toYaml .valueFrom | nindent 18 }}
+              {{- end }}
+            {{- end }}
+            {{- if .Values.volumeClaim.backup }}
+            - name: WALG_FILE_PREFIX 
+              {{- if .Values.volumeClaim.backup.nfs.enabled }}
+              value: "{{ .Values.volumeClaim.backup.path }}/$(POD_NAME)"
+              {{- else }}
+              value: "{{ .Values.volumeClaim.backup.path }}"
+              {{- end }}
+            {{- end }}
+            - name: PGPASSWORD_SUPERUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "postgres-cluster.fullname" . }}
+                  key: superuser-password
+            - name: PGUSER_ADMIN
+              value: superadmin
+            - name: PGPASSWORD_ADMIN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "postgres-cluster.fullname" . }}
+                  key: admin-password
+            - name: PGPASSWORD_STANDBY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "postgres-cluster.fullname" . }}
+                  key: replication-password
+            - name: SCOPE
+              value: {{ include "postgres-cluster.fullname" . }}
+            - name: PGROOT
+              value: "{{ .Values.volumeClaim.pgdata.path }}/pgroot"
+            - name: WALE_ENV_DIR
+              value: "/config"
+          volumeMounts:
+            - mountPath: /config
+              name: config
+            - mountPath: {{ .Values.volumeClaim.pgdata.path }}
+              name: {{ .Values.volumeClaim.pgdata.name }}
+            - mountPath: {{ .Values.volumeClaim.backup.path }}
+              name: {{ .Values.volumeClaim.backup.name }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      terminationGracePeriodSeconds:  {{ .Values.terminationGracePeriodSeconds }}
+      volumes:
+        - configMap:
+            name: {{ include "postgres-cluster.fullname" $ }}
+          name: config
+      {{- if .Values.volumeClaim.backup.nfs.enabled }}
+        - name: {{ .Values.volumeClaim.backup.name }}
+          nfs:
+            server: {{ .Values.volumeClaim.backup.nfs.server }}
+            path: {{ .Values.volumeClaim.backup.nfs.path }}
+      {{- end }}
+  volumeClaimTemplates:
+  - metadata:
+      labels:
+        application: spilo
+        spilo-cluster: {{ include "postgres-cluster.fullname" . }}
+      annotations:
+        volume.beta.kubernetes.io/storage-class: {{ .Values.volumeClaim.pgdata.storageClass }}
+      name: {{ .Values.volumeClaim.pgdata.name }}
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: {{ .Values.volumeClaim.pgdata.storage }}
+  {{- if not .Values.volumeClaim.backup.nfs.enabled }}
+  - metadata:
+      labels:
+        application: spilo
+        spilo-cluster: {{ include "postgres-cluster.fullname" . }}
+      annotations:
+        volume.beta.kubernetes.io/storage-class: {{ .Values.volumeClaim.backup.storageClass }}
+      name: {{ .Values.volumeClaim.backup.name }}
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: {{ .Values.volumeClaim.backup.storage }}
+  {{- end -}}

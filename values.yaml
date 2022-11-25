@@ -1,0 +1,152 @@
+# Default values for postgres-cluster.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 2
+
+image:
+  repository: registry.opensource.zalan.do/acid/spilo-14
+  pullPolicy: IfNotPresent
+  tag: "2.1-p7"
+
+initContainers: 
+  image:
+    repository: busybox
+    tag: "1.35.0"
+
+imagePullSecrets: []
+nameOverride: "postgres-cluster"
+fullnameOverride: "postgres-cluster"
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: "operator"
+
+podAnnotations: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 101
+
+service:
+  spilo:
+    type: ClusterIP
+    name: postgresql
+    port: 5000
+    targetPort: 5432
+    protocol: TCP
+    # nodePort: 30507
+  config:
+    clusterIP: None
+
+resources: {}
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+role:
+  configmaps:
+    - create
+    - get
+    - list
+    - patch
+    - update
+    - watch
+    - delete
+  endpoints:
+    - get
+    - patch
+    - update
+    - create
+    - list
+    - watch
+    - delete
+  pods:
+    - get
+    - list
+    - patch
+    - update
+    - watch
+  services:
+    - create
+
+terminationGracePeriodSeconds: 0
+
+volumeClaim:
+  pgdata:
+    name: pgdata
+    storage: 2Gi
+    path: "/home/postgres/pgdata"
+    storageClass: local-path
+  backup:
+    name: backup
+    storage: 2Gi
+    path: "/data/pg_wal"
+    storageClass: local-path
+    nfs: 
+      enabled: false
+      server:  my-nfs-server.example.com
+      path: /nfs1/postgres/backup
+
+
+config:
+  - name: DCS_ENABLE_KUBERNETES_API
+    value: true
+  - name: CRONTAB
+    valueTPL: '["00 01 * * * envdir /config /scripts/postgres_backup.sh {{ .Values.volumeClaim.pgdata.path }}/pgroot/data"]'
+  - name: KUBERNETES_SCOPE_LABEL
+    value: spilo-cluster
+  - name: KUBERNETES_ROLE_LABEL
+    value: role
+  - name: SPILO_CONFIGURATION
+    valueYaml: |
+      bootstrap:
+        initdb:
+          - auth-host: md5
+          - auth-local: trust
+  - name: POD_IP
+    valueFrom:
+      fieldRef:
+        apiVersion: v1
+        fieldPath: status.podIP
+  - name: POD_NAMESPACE
+    valueFrom:
+      fieldRef:
+        apiVersion: v1
+        fieldPath: metadata.namespace
+  - name: POD_NAME
+    valueFrom:
+      fieldRef:
+        apiVersion: v1
+        fieldPath: metadata.name
+  - name: HUMAN_ROLE
+    value: init
+  - name: TZ
+    value: "Europe/Moscow"
+
+secret:
+  superuser: superuser
+  replication: replication
+  admin: admin
